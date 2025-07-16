@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import datetime
 import numpy as np
 import threading
+import scipy
 
 def _create_circle(self, c, r, **kwargs):
     x = c[0]
@@ -76,18 +77,25 @@ class HeliosControlTab():
         self.canva_w = 900
         self.helios_canvas = None
 
+        self.helios_is_ok = False
+        stat = self.my_helios.get_status()
+        if stat['adc'] and stat['rtc'] and stat['intrtc']:
+            self.helios_is_ok = True
+
         self.mir_alt = self.my_helios.alt
         self.mir_azi = self.my_helios.azi
-        self.ory_alt, self.ory_azi = mir2ory(self.mir_alt, 
-                                        self.mir_azi,
-                                        (self.my_helios.lon, self.my_helios.lat), 
-                                        datetime.datetime.now(datetime.timezone.utc).isoformat()[:-6])
+        if self.helios_is_ok:
+            self.ory_alt, self.ory_azi = mir2ory(self.mir_alt, 
+                                                 self.mir_azi,
+                                                 (self.my_helios.lon, self.my_helios.lat), 
+                                                 datetime.datetime.now(datetime.timezone.utc).isoformat()[:-6])
         
         self.helios_tab = ttk.Frame(root)
 
         self.control_mode = StringVar()
-        self.control_mode.set("sol")
-        self.current_scene = np.array([[]])
+        self.scene_speed = DoubleVar()
+        self.control_mode.set("abs")
+        self.current_scene = np.array([])
 
         self.helios_canvas = Canvas(self.helios_tab, width=self.canva_w, height=self.canva_h, bg='white')
         self.pos_label = Label(self.helios_tab, text="Current Position")
@@ -100,11 +108,12 @@ class HeliosControlTab():
         self.abs_control = Radiobutton(self.helios_tab, text="Absolute", variable=self.control_mode, value='abs')
         self.sol_control = Radiobutton(self.helios_tab, text="Solar", variable=self.control_mode, value='sol')
         self.calibrate_but = Button(self.helios_tab, text="Calibrate")
-        self.add_pt_but = Button(self.helios_tab, text="Add Point to Scene")
+        self.add_pt_but = Button(self.helios_tab, text="Add Point to Scene", command=self.add_point_to_scene)
         self.test_scene_but = Button(self.helios_tab, text="Test Scene")
         self.save_scene_but = Button(self.helios_tab, text="Save Scene")
         self.clean_scene_but = Button(self.helios_tab, text="Clean Scene")
         self.load_scene_but = Button(self.helios_tab, text="Load Scene")
+        self.scene_speed_scale = ttk.Scale(self.helios_tab, from_=0, to=1., orient="horizontal", variable=self.scene_speed)
 
 
         self.pos_label.place(x=10, y=10)
@@ -118,7 +127,8 @@ class HeliosControlTab():
         self.sol_control.place(x=1110, y=10)
         self.abs_control.place(x=1110, y=30)
         self.add_pt_but.place(x=1110, y=70)
-        self.save_scene_but.place(x=1110, y=110)
+        self.scene_speed_scale.place(x=1110, y=110)
+        self.save_scene_but.place(x=1110, y=270)
         self.test_scene_but.place(x=1110, y=150)
         self.clean_scene_but.place(x=1110, y=190)
         self.load_scene_but.place(x=1110, y=230)
@@ -162,19 +172,28 @@ class HeliosControlTab():
         sun_azi, sun_alt = get_sun_position((self.my_helios.lon, self.my_helios.lat), datetime.datetime.now(datetime.timezone.utc).isoformat()[:-6]) 
         self.helios_canvas.create_circle(self.a2c(sun_alt, sun_azi), 20, fill='yellow', outline='orange')
 
-        if self.control_mode.get() == 'sol':
-            self.mir_alt, self.mir_azi = ory2mir(self.ory_alt, 
-                                                 self.ory_azi,
-                                                 (self.my_helios.lon, self.my_helios.lat), 
-                                                 datetime.datetime.now(datetime.timezone.utc).isoformat()[:-6])
-        elif self.control_mode.get() == 'abs':
-            self.ory_alt, self.ory_azi = mir2ory(self.mir_alt, 
-                                                 self.mir_azi,
-                                                 (self.my_helios.lon, self.my_helios.lat), 
-                                                 datetime.datetime.now(datetime.timezone.utc).isoformat()[:-6])
-        
-        self.helios_canvas.create_circle(self.a2c(self.ory_alt, self.ory_azi), 5, fill='black', outline='blue')
-        self.helios_canvas.create_circle(self.a2c(self.mir_alt, self.mir_azi), 10,  fill="#BBB", outline="")
+        if self.helios_is_ok:
+            if self.control_mode.get() == 'sol':
+                self.mir_alt, self.mir_azi = ory2mir(self.ory_alt, 
+                                                    self.ory_azi,
+                                                    (self.my_helios.lon, self.my_helios.lat), 
+                                                    datetime.datetime.now(datetime.timezone.utc).isoformat()[:-6])
+            elif self.control_mode.get() == 'abs':
+                self.ory_alt, self.ory_azi = mir2ory(self.mir_alt, 
+                                                    self.mir_azi,
+                                                    (self.my_helios.lon, self.my_helios.lat), 
+                                                    datetime.datetime.now(datetime.timezone.utc).isoformat()[:-6])
+            
+            self.helios_canvas.create_circle(self.a2c(self.ory_alt, self.ory_azi), 5, fill='black', outline='blue')
+            self.helios_canvas.create_circle(self.a2c(self.mir_alt, self.mir_azi), 10,  fill="#BBB", outline="")
+
+        if self.current_scene.shape[0] > 0:
+            for pt in range(self.current_scene.shape[0]):
+                self.helios_canvas.create_circle(self.a2c(self.current_scene[pt][0], self.current_scene[pt][1]), 5, fill='green', outline='green')
+            
+            interp_data = self.interp_helios(self.current_scene, self.scene_speed.get())
+            for pt in range(interp_data.shape[0]):
+                self.helios_canvas.create_circle(self.a2c(interp_data[pt][0], interp_data[pt][1]), 2, fill='red', outline='red')
 
     def update(self):
         self.helios_canvas.delete("all")
@@ -203,6 +222,46 @@ class HeliosControlTab():
         bat_lev = self.my_helios.battery_charge()
         self.bat_label.config(text = "BAT {:.0f} %".format(bat_lev))
 
+    def add_point_to_scene(self):
+        size = self.current_scene.shape[0]
+        tmp = self.current_scene.copy()
+        self.current_scene = np.zeros((size+1, 2))
+        if size > 0:
+            self.current_scene[:size] = tmp
+        if self.ory_alt > 180.:
+            self.current_scene[size] = [self.ory_alt-360., self.ory_azi]
+        else:
+            self.current_scene[size] = [self.ory_alt, self.ory_azi]
+        print(self.current_scene)
+
+    def interp_helios(self, points, s):
+        dat = points
+        if dat.shape[0] <= 3:
+            k = dat.shape[0] - 1
+        else:
+            k=3
+        
+        if dat.shape[0] == 1:
+            smax = 0.5
+        else:
+            smax = (120 - 1) * 0.5 / (dat.shape[0]-1)
+        smin = 0.5
+        dt = smin + s*(smax-smin)
+        nout = int((dat.shape[0]-1)*dt // 0.5  + 1)
+        
+        inter = scipy.interpolate.make_interp_spline(np.arange(0, dat.shape[0], 1.0) * dt, dat, k=k)
+        c = inter(np.arange(0, (dat.shape[0]-1)*dt, 0.5))
+        c = np.concatenate((c, dat[-1:,:]))
+        speed_alt = 0
+        speed_azi = 0
+        for i in range(1, nout):
+            sazi = abs(c[i,0]-c[i-1,0]) / dt
+            salt = abs(c[i,1]-c[i-1,1]) / dt
+            if sazi > speed_azi:
+                speed_azi = sazi
+            if salt > speed_alt:
+                speed_alt = salt
+        return c
 
     
 
@@ -246,6 +305,7 @@ class HeliosGUI():
 
         self.window.after(1000, self.send_motor_cmd)
         self.window.after(10, self.update)
+        self.window.after(30000, self.keep_helios_alive)
 
     def destroy_main_space(self):
         if self.quit_btn is not None:
@@ -420,6 +480,8 @@ class HeliosGUI():
 
     def send_motor_cmd(self):
         if self.update_position:
+            self.update_position = False
+            return
             if self.last_update_thread is None or not self.last_update_thread.is_alive():
                 h_idx = self.main_tab.index(self.main_tab.select())
                 h = self.helios[h_idx]
@@ -431,8 +493,14 @@ class HeliosGUI():
                     thr = threading.Thread(target=h.absolute_move, args=(tab.mir_alt, tab.mir_azi))
                 thr.start() 
                 self.last_update_thread  = thr
-                self.update_position = False
         self.window.after(250, self.send_motor_cmd)
+
+    def keep_helios_alive(self):
+        print('keep alive')
+        for h in self.helios:
+            print(h.id)
+            h.cmd_get_answare("")
+        self.window.after(30000, self.keep_helios_alive)
 
 
     def main_loop(self):
