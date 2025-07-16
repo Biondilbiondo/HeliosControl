@@ -109,10 +109,11 @@ class HeliosControlTab():
         self.sol_control = Radiobutton(self.helios_tab, text="Solar", variable=self.control_mode, value='sol')
         self.calibrate_but = Button(self.helios_tab, text="Calibrate")
         self.add_pt_but = Button(self.helios_tab, text="Add Point to Scene", command=self.add_point_to_scene)
-        self.test_scene_but = Button(self.helios_tab, text="Test Scene")
-        self.save_scene_but = Button(self.helios_tab, text="Save Scene")
-        self.clean_scene_but = Button(self.helios_tab, text="Clean Scene")
-        self.load_scene_but = Button(self.helios_tab, text="Load Scene")
+        self.test_scene_but = Button(self.helios_tab, text="Test Scene", command=self.test_scene)
+        self.save_scene_but = Button(self.helios_tab, text="Save Scene", command=self.save_scene)
+        self.clean_scene_but = Button(self.helios_tab, text="Clean Scene", command=self.clean_scene)
+        self.load_scene_but = Button(self.helios_tab, text="Load Scene", command=self.dialog_load_scene)
+        self.delete_scene_but = Button(self.helios_tab, text="Delete Scene", command=self.dialog_delete_scene)
         self.scene_speed_scale = ttk.Scale(self.helios_tab, from_=0, to=1., orient="horizontal", variable=self.scene_speed)
 
 
@@ -132,6 +133,7 @@ class HeliosControlTab():
         self.test_scene_but.place(x=1110, y=150)
         self.clean_scene_but.place(x=1110, y=190)
         self.load_scene_but.place(x=1110, y=230)
+        self.delete_scene_but.place(x=1110, y=310)
         
         self.draw_canvas_control()
         self.update_status()
@@ -191,7 +193,7 @@ class HeliosControlTab():
             for pt in range(self.current_scene.shape[0]):
                 self.helios_canvas.create_circle(self.a2c(self.current_scene[pt][0], self.current_scene[pt][1]), 5, fill='green', outline='green')
             
-            interp_data = self.interp_helios(self.current_scene, self.scene_speed.get())
+            interp_data = self.interp_helios()
             for pt in range(interp_data.shape[0]):
                 self.helios_canvas.create_circle(self.a2c(interp_data[pt][0], interp_data[pt][1]), 2, fill='red', outline='red')
 
@@ -224,6 +226,8 @@ class HeliosControlTab():
 
     def add_point_to_scene(self):
         size = self.current_scene.shape[0]
+        if size >= 120:
+            return
         tmp = self.current_scene.copy()
         self.current_scene = np.zeros((size+1, 2))
         if size > 0:
@@ -234,8 +238,10 @@ class HeliosControlTab():
             self.current_scene[size] = [self.ory_alt, self.ory_azi]
         print(self.current_scene)
 
-    def interp_helios(self, points, s):
-        dat = points
+    def interp_helios(self):
+        s = self.scene_speed.get()
+        dat = self.current_scene
+
         if dat.shape[0] <= 3:
             k = dat.shape[0] - 1
         else:
@@ -262,7 +268,61 @@ class HeliosControlTab():
             if salt > speed_alt:
                 speed_alt = salt
         return c
+    
+    
+    def test_scene(self):
+        if self.current_scene.shape[0] == 0:
+            return
+        self.my_helios.upload_scene('test', self.interp_helios())
+        self.my_helios.test_scene('test')
+        self.my_helios.delete_scene('test')
+    
+    def clean_scene(self):
+        self.current_scene = np.array([])
+        self.my_helios.delete_scene('test')
 
+    def dialog_load_scene(self):
+        dialog = Toplevel()
+        dialog.wm_title("Load Scene from Helios...")
+        
+        def dialog_load_act(sn):
+            self.current_scene = self.my_helios.get_scene(sn)
+            dialog.destroy()
+
+        for i, s in enumerate(self.my_helios.scenes.keys()):
+            b = Button(dialog, text=s, command=lambda: dialog_load_act(s))
+            b.grid(row=i//3, column=i%3, padx=10, pady=10)
+    
+    def save_scene(self):
+        if self.current_scene.shape[0] == 0:
+            return
+        dialog = Toplevel()
+        dialog.wm_title("Save Scene to Helios...")
+        
+        def dialog_save_act():
+            self.my_helios.upload_scene(name_field.get(), self.interp_helios())
+            dialog.destroy()
+
+        name_field = Entry(dialog, width=16)
+        name_field.grid(row=1, column=1, padx=10, pady=10)
+        Button(dialog, text="Save", command=dialog_save_act).grid(row=2, column=1, padx=10, pady=10)
+        Button(dialog, text="Cancel", command=dialog.destroy).grid(row=2, column=2, padx=10, pady=10)
+
+    def dialog_delete_scene(self):
+        dialog = Toplevel()
+        dialog.wm_title("Delete Scene from Helios...")
+        
+        def dialog_delete_act(sn):
+            self.my_helios.delete_scene(sn)
+            dialog.destroy()
+
+        for i, s in enumerate(self.my_helios.scenes.keys()):
+            b = Button(dialog, text=s, command=lambda: dialog_delete_act(s))
+            b.grid(row=i//3, column=i%3, padx=10, pady=10)
+        
+        Button(dialog, text="Cancel", command=dialog.destroy).grid(row=len(self.my_helios.scenes.keys())//3, 
+                                                                   column=len(self.my_helios.scenes.keys())%3, 
+                                                                   padx=10, pady=10)
     
 
 class HeliosGUI():
