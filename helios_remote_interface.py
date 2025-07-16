@@ -7,12 +7,21 @@ import datetime
 import numpy as np
 import threading
 import scipy
+from functools import partial
 
 def _create_circle(self, c, r, **kwargs):
     x = c[0]
     y = c[1]
     return self.create_oval(x-r, y-r, x+r, y+r, **kwargs)
 Canvas.create_circle = _create_circle
+
+def _set_text(self, text):
+    self.config(state='normal')
+    self.delete(0,END)
+    self.insert(0,text)
+    self.config(state='readonly')
+    return
+Entry.set = _set_text
 
 def sc2a(s, c):
     a = np.asin(s)
@@ -114,6 +123,8 @@ class HeliosControlTab():
         self.clean_scene_but = Button(self.helios_tab, text="Clean Scene", command=self.clean_scene)
         self.load_scene_but = Button(self.helios_tab, text="Load Scene", command=self.dialog_load_scene)
         self.delete_scene_but = Button(self.helios_tab, text="Delete Scene", command=self.dialog_delete_scene)
+        self.wifi_net_but = Button(self.helios_tab, text="Wifi Networks", command=self.dialog_wifi_net)
+        self.sequence_but = Button(self.helios_tab, text="Sequences", command=self.dialog_sequence)
         self.scene_speed_scale = ttk.Scale(self.helios_tab, from_=0, to=1., orient="horizontal", variable=self.scene_speed)
 
 
@@ -124,7 +135,10 @@ class HeliosControlTab():
         self.intrtc_label.place(x=10, y=90)
         self.ntp_label.place(x=10, y=110)
         self.update_status_but.place(x=10, y=130)
+        self.wifi_net_but.place(x=10, y=200)
+
         self.helios_canvas.place(x=150, y=10)
+
         self.sol_control.place(x=1110, y=10)
         self.abs_control.place(x=1110, y=30)
         self.add_pt_but.place(x=1110, y=70)
@@ -134,6 +148,7 @@ class HeliosControlTab():
         self.clean_scene_but.place(x=1110, y=190)
         self.load_scene_but.place(x=1110, y=230)
         self.delete_scene_but.place(x=1110, y=310)
+        self.sequence_but.place(x=1110, y=350)
         
         self.draw_canvas_control()
         self.update_status()
@@ -226,7 +241,7 @@ class HeliosControlTab():
 
     def add_point_to_scene(self):
         size = self.current_scene.shape[0]
-        if size >= 120:
+        if size >= self.my_helios.sequence_max:
             return
         tmp = self.current_scene.copy()
         self.current_scene = np.zeros((size+1, 2))
@@ -248,15 +263,15 @@ class HeliosControlTab():
             k=3
         
         if dat.shape[0] == 1:
-            smax = 0.5
+            smax = self.my_helios.sequence_dt
         else:
-            smax = (120 - 1) * 0.5 / (dat.shape[0]-1)
-        smin = 0.5
+            smax = (self.my_helios.sequence_max - 1) * self.my_helios.sequence_dt / (dat.shape[0]-1)
+        smin = self.my_helios.sequence_dt
         dt = smin + s*(smax-smin)
-        nout = int((dat.shape[0]-1)*dt // 0.5  + 1)
+        nout = int((dat.shape[0]-1)*dt // self.my_helios.sequence_dt  + 1)
         
         inter = scipy.interpolate.make_interp_spline(np.arange(0, dat.shape[0], 1.0) * dt, dat, k=k)
-        c = inter(np.arange(0, (dat.shape[0]-1)*dt, 0.5))
+        c = inter(np.arange(0, (dat.shape[0]-1)*dt, self.my_helios.sequence_dt))
         c = np.concatenate((c, dat[-1:,:]))
         speed_alt = 0
         speed_azi = 0
@@ -290,8 +305,13 @@ class HeliosControlTab():
             dialog.destroy()
 
         for i, s in enumerate(self.my_helios.scenes.keys()):
-            b = Button(dialog, text=s, command=lambda: dialog_load_act(s))
+            a = partial(dialog_load_act, s)
+            b = Button(dialog, text=s, command=a)
             b.grid(row=i//3, column=i%3, padx=10, pady=10)
+
+        Button(dialog, text="Cancel", command=dialog.destroy).grid(row=len(self.my_helios.scenes.keys())//3+1, 
+                                                                   column=1, 
+                                                                   padx=10, pady=10)
     
     def save_scene(self):
         if self.current_scene.shape[0] == 0:
@@ -313,16 +333,131 @@ class HeliosControlTab():
         dialog.wm_title("Delete Scene from Helios...")
         
         def dialog_delete_act(sn):
+            print(sn)
             self.my_helios.delete_scene(sn)
             dialog.destroy()
 
         for i, s in enumerate(self.my_helios.scenes.keys()):
-            b = Button(dialog, text=s, command=lambda: dialog_delete_act(s))
+            a = partial(dialog_delete_act, s)
+            b = Button(dialog, text=s, command=a)
             b.grid(row=i//3, column=i%3, padx=10, pady=10)
         
-        Button(dialog, text="Cancel", command=dialog.destroy).grid(row=len(self.my_helios.scenes.keys())//3, 
-                                                                   column=len(self.my_helios.scenes.keys())%3, 
+        Button(dialog, text="Cancel", command=dialog.destroy).grid(row=len(self.my_helios.scenes.keys())//3+1, 
+                                                                   column=1, 
                                                                    padx=10, pady=10)
+        
+    def dialog_wifi_net(self):
+        dialog = Toplevel()
+        dialog.wm_title("Manage Helios WiFi Network")
+        
+        def dialog_delete_act(sn):
+            self.my_helios.delete_wifi_network(sn)
+            dialog.destroy()
+
+        def dialog_add_act():
+            self.my_helios.add_wifi_network(ssid_entry.get(), pass_entry.get())
+            dialog.destroy()
+
+        for i, s in enumerate(self.my_helios.wifi_conn.keys()):
+            Label(dialog, text=s).grid(row=i, column=0)
+            a = partial(dialog_delete_act, s)
+            Button(dialog, text="Remove", command=a).grid(row=i, column=1, 
+                                                                                     padx=10, pady=10)
+        row = len(self.my_helios.wifi_conn)
+        
+        ttk.Separator(dialog,orient=HORIZONTAL).grid(row=row, columnspan=3, sticky="ew")
+
+        Label(dialog, text="SSID").grid(row=row+1, column=0, padx=10, pady=10)
+        Label(dialog, text="Password").grid(row=row+1, column=1, padx=10, pady=10)
+        
+        ssid_entry = Entry(dialog, width=20)
+        ssid_entry.grid(row=row+2, column=0, padx=10, pady=10)
+        pass_entry = Entry(dialog, width=20)
+        pass_entry.grid(row=row+2, column=1, padx=10, pady=10)
+        Button(dialog, text="Add", command=dialog_add_act).grid(row=row+3, 
+                                                                column=0, 
+                                                                padx=10, pady=10)
+    
+        Button(dialog, text="Cancel", command=dialog.destroy).grid(row=row+3, 
+                                                                   column=1, 
+                                                                   padx=10, pady=10)
+        
+    def dialog_sequence(self):
+        dialog = Toplevel()
+        dialog.wm_title("Manage Helios Sequence Schedule")
+        
+        def dialog_delete_act(s):
+            self.my_helios.remove_schedule(s)
+            dialog.destroy()
+
+        def dialog_add_act():
+            dt = datetime.datetime.fromisoformat("1900-01-01 {:02d}:{:02d}:{:02d}".format(int(h_entry.get()), int(m_entry.get()), int(s_entry.get())))
+            tz_delta = datetime.datetime.now(datetime.timezone.utc).astimezone().utcoffset()
+            utc_time = (dt-tz_delta).time()
+            hs = HeliosSchedule(0, str(utc_time), 'sequence', seq.get().split())
+            self.my_helios.add_schedule(hs)
+            dialog.destroy()
+
+        def dialog_add_scene_act(s):
+            seq.set(seq.get()+' '+s)
+
+        def dialog_remove_scene_act():
+            seq.set(' '.join(seq.get().split()[:-1]))
+
+        i = 0
+        for s in self.my_helios.schedule:
+            if s.type == 'wifi':
+                continue
+            if (i%2)*2 == 0:
+                cs = 5
+                col = 0
+            else:
+                cs = 1
+                col = 5
+            Label(dialog, text=str(s)[4:]).grid(row=i//2, column=(i%2)*2+6)
+            a = partial(dialog_delete_act, s)
+            Button(dialog, text="Remove", command=a).grid(row=i//2, column=(i%2)*2+col, padx=10, pady=10,columnspan=cs)
+            i += 1
+  
+        row = i
+        ttk.Separator(dialog,orient=HORIZONTAL).grid(row=row, columnspan=9, sticky="ew")
+
+        seq = Entry(dialog, text="DIOLUPO", width=150, state='readonly')
+        seq.grid(row=row+1, column=6, columnspan=3, padx=10, pady=10)
+        
+        h_entry = Entry(dialog, width=2)
+        h_entry.grid(row=row+1, column=0, padx=0, pady=10)
+        Label(dialog, text=":").grid(row=row+1, column=1, padx=0, pady=10)
+        m_entry = Entry(dialog, width=2)
+        m_entry.grid(row=row+1, column=2, padx=0, pady=0)
+        Label(dialog, text=":").grid(row=row+1, column=3, padx=0, pady=10)
+        s_entry = Entry(dialog, width=2)
+        s_entry.grid(row=row+1, column=4, padx=0, pady=10)
+
+        for i, s in enumerate(self.my_helios.scenes.keys()):
+            if (i%4)*2 == 0:
+                cs = 5
+                col = 0
+            else:
+                cs = 1
+                col = 5
+            a = partial(dialog_add_scene_act, s)
+            b = Button(dialog, text=s, command=a)
+            print(s, i%4+col)
+            b.grid(row=row+2+i//4, column=i%4+col, columnspan=cs, padx=10, pady=10)
+
+        Button(dialog, text="Add Seq", command=dialog_add_act).grid(row=row+3, 
+                                                                column=0,
+                                                                columnspan=5, 
+                                                                padx=10, pady=10)
+        Button(dialog, text="Remove Scene", command=dialog_remove_scene_act).grid(row=row+3, 
+                                                                column=6,
+                                                                padx=10, pady=10)
+    
+        Button(dialog, text="Cancel", command=dialog.destroy).grid(row=row+3, 
+                                                                   column=7, 
+                                                                   padx=10, pady=10)
+
     
 
 class HeliosGUI():

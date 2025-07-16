@@ -6,7 +6,7 @@ import astropy.units as u
 
 import time
 import telnetlib
-from datetime import datetime
+import datetime
 
 def get_sun_position(loc, t):
     t = Time(t, format='isot')
@@ -21,7 +21,7 @@ def get_sun_position(loc, t):
 
 class HeliosSchedule:
     def __init__(self, sch_id, timestr, sch_type, sequence=[]):
-        self.time = datetime.strptime(timestr,"%H:%M:%S").time()
+        self.time = datetime.datetime.strptime(timestr,"%H:%M:%S").time()
         self.type = sch_type
         self.id = sch_id
         assert self.type in ['wifi', 'sequence']
@@ -41,10 +41,12 @@ class HeliosSchedule:
     def __le__(self, other):
         return self.time <= other.time
     def __str__(self):
+        tz_delta = datetime.datetime.now(datetime.timezone.utc).astimezone().utcoffset()
+        local_time = (datetime.datetime.fromisoformat('1900-01-01 '+str(self.time))+tz_delta).time()
         if self.type == 'wifi':
-            return "{:d} - {:s} wifi".format(self.id, str(self.time))
+            return "{:d} - {:s} wifi".format(self.id, str(local_time))
         else:
-            s = "{:d} - {:s} sequence".format(self.id, str(self.time))
+            s = "{:d} - {:s} sequence".format(self.id, str(local_time))
             for scene in self.sequence:
                 s += ' {:s}'.format(scene)
             return s
@@ -70,6 +72,9 @@ class HeliosUnit:
 
         self.lat = np.nan
         self.lon = np.nan
+
+        self.sequence_max = 120
+        self.sequence_dt = 0.5
 
         self.get_position()
         self.get_list_scene()
