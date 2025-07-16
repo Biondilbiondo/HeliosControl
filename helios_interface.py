@@ -65,8 +65,6 @@ class HeliosUnit:
 
         self.id = self.get_id()
 
-        self.alt_setpoint = np.nan
-        self.azi_setpoint = np.nan
         self.alt = np.nan
         self.azi = np.nan
 
@@ -111,7 +109,7 @@ class HeliosUnit:
     
     def get_time(self):
         ans = self.cmd_get_answare('time')
-        return Time(ans[0], format='isot')
+        return Time(ans[1], format='isot')
 
     def set_geo(self, lat, lon):
         return self.cmd_get_answare('set-geo {:.3f} {:.3f}'.format(lat, lon)) is not None
@@ -322,6 +320,8 @@ class HeliosUnit:
     
     def battery_charge(self):
         ans = self.cmd_get_answare('battery')
+        if ans is None:
+            return -1.
         return float(ans[0].strip().split()[0])
     
     def get_wifi_conn(self):
@@ -429,6 +429,13 @@ class HeliosUnit:
             print(device_sun_azi, apy_azi)
             return False
         return True
+
+    def get_ory(self):
+        ans = self.cmd_get_answare('mirror-log')
+        assert ans[2].split()[0] == 'OUT-RAY'
+        ory_alt = float(ans[3].split()[1])
+        ory_azi = float(ans[1].split()[3])
+        return ory_alt, ory_azi
 
     def check_device_clock(self, tol=2.0):
         current_time = Time.now()

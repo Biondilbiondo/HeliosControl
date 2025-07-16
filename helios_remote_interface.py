@@ -13,47 +13,75 @@ def _create_circle(self, c, r, **kwargs):
     return self.create_oval(x-r, y-r, x+r, y+r, **kwargs)
 Canvas.create_circle = _create_circle
 
+def sc2a(s, c):
+    a = np.asin(s)
+    if(c < 0):
+        a = np.pi -a
+    return a
+
+def absolute_to_geo(v):
+    absolute_alt_cosine = np.sqrt(v[0] * v[0] + v[1] * v[1])
+    absolute_alt_sine = v[2]
+    absolute_alt = sc2a(absolute_alt_sine, absolute_alt_cosine)
+
+    absolute_azi_sine = v[1] / absolute_alt_cosine
+    absolute_azi_cosine = v[0] / absolute_alt_cosine
+    absolute_azi = sc2a(absolute_azi_sine, absolute_azi_cosine)
+    absolute_azi = 90.0 - absolute_azi * 180/np.pi;
+    return absolute_alt * 180/np.pi, absolute_azi
+
+def geo_to_absolute(alt, azi):
+    azi_rad = azi * np.pi / 180.
+    absolute_azi_rad = np.pi/2 - azi_rad
+    absolute_alt_rad = alt * np.pi/180
+
+    v = np.zeros(3)
+    v[0] = np.cos(absolute_alt_rad) * np.cos(absolute_azi_rad)
+    v[1] = np.cos(absolute_alt_rad) * np.sin(absolute_azi_rad)
+    v[2] = np.sin(absolute_alt_rad)
+    return v
+
 def get_sun_unit_vec(loc, t):
     azi, alt = get_sun_position(loc, t)
-    alt *= np.pi/180
-    azi *= np.pi/180
+    return geo_to_absolute(alt, azi)
 
-    u = [np.cos(np.pi/2-azi) * np.cos(alt),
-         np.sin(np.pi/2-azi) * np.cos(alt),
-         np.sin(alt)]
+def get_normal_vec(sun, ory):
+    norm = np.dot(sun, ory)
+    norm = -2 * np.sqrt((1+norm)/2.)
+    mir = (-sun - ory)/norm
+    return mir
 
-    return np.array(u)
+def get_reflected_vec(sun, mir):
+    norm = np.dot(mir, sun)
+    ory = -sun + 2*norm*mir
+    return ory
 
-# o = i - 2(i . s) s
-def get_reflection_vec(i, s):
-    o = i - 2 * np.dot(i, s) * s
-    # print(np.arccos(np.dot(i,o))*360/6.28)
-    # print(np.arccos(np.dot(s,-i))*360/6.28)
-    # print(np.arccos(np.dot(s,o))*360/6.28)
-    return o
+def ory2mir(alt, azi, loc, t):
+    ory = geo_to_absolute(alt, azi)
+    sun = get_sun_unit_vec(loc, t)
+    
+    mir = get_normal_vec(sun, ory)
+    return absolute_to_geo(mir)
 
+def mir2ory(alt, azi, loc, t):
+    mir = geo_to_absolute(alt, azi)
+    sun = get_sun_unit_vec(loc, t)
+    ory = get_reflected_vec(sun, mir)
+    return absolute_to_geo(ory)
 
-    sun = get_sun_unit_vec(loc, now)
-
-def get_reflected_point(h:HeliosUnit):
-    sun = get_sun_unit_vec((h.lon, h.lat), datetime.datetime.now(datetime.timezone.utc).isoformat()[:-6])
-    malt = h.alt_setpoint * np.pi / 180.
-    mazi = h.azi_setpoint * np.pi / 180.
-    mir = [np.cos(np.pi/2-mazi) * np.cos(malt),
-           np.sin(np.pi/2-mazi) * np.cos(malt),
-           np.sin(malt)]
-    mir = np.array(mir)
-
-    back = get_reflection_vec(-sun, mir)
-    #print(back)
-
-    return 0, 0
 class HeliosControlTab():
     def __init__(self, h, root):
         self.my_helios = h
         self.canva_h = 600
         self.canva_w = 900
         self.helios_canvas = None
+
+        self.mir_alt = self.my_helios.alt
+        self.mir_azi = self.my_helios.azi
+        self.ory_alt, self.ory_azi = mir2ory(self.mir_alt, 
+                                        self.mir_azi,
+                                        (self.my_helios.lon, self.my_helios.lat), 
+                                        datetime.datetime.now(datetime.timezone.utc).isoformat()[:-6])
         
         self.helios_tab = ttk.Frame(root)
 
@@ -130,11 +158,23 @@ class HeliosControlTab():
         if self.helios_canvas is None:
             return
         self.draw_canvas_background()
-        self.helios_canvas.create_circle(self.a2c(self.my_helios.alt_setpoint, self.my_helios.azi_setpoint), 10,  fill="#BBB", outline="")
+
         sun_azi, sun_alt = get_sun_position((self.my_helios.lon, self.my_helios.lat), datetime.datetime.now(datetime.timezone.utc).isoformat()[:-6]) 
         self.helios_canvas.create_circle(self.a2c(sun_alt, sun_azi), 20, fill='yellow', outline='orange')
-        #ref = get_reflected_point(self.my_helios)
-        #self.helios_canvas.create_circle(self.a2c(ref[0], ref[1]), 10, fill='yellow', outline='blue')
+
+        if self.control_mode.get() == 'sol':
+            self.mir_alt, self.mir_azi = ory2mir(self.ory_alt, 
+                                                 self.ory_azi,
+                                                 (self.my_helios.lon, self.my_helios.lat), 
+                                                 datetime.datetime.now(datetime.timezone.utc).isoformat()[:-6])
+        elif self.control_mode.get() == 'abs':
+            self.ory_alt, self.ory_azi = mir2ory(self.mir_alt, 
+                                                 self.mir_azi,
+                                                 (self.my_helios.lon, self.my_helios.lat), 
+                                                 datetime.datetime.now(datetime.timezone.utc).isoformat()[:-6])
+        
+        self.helios_canvas.create_circle(self.a2c(self.ory_alt, self.ory_azi), 5, fill='black', outline='blue')
+        self.helios_canvas.create_circle(self.a2c(self.mir_alt, self.mir_azi), 10,  fill="#BBB", outline="")
 
     def update(self):
         self.helios_canvas.delete("all")
@@ -200,7 +240,7 @@ class HeliosGUI():
         self.helios_tabs = []
 
         self.update_position = False
-        self.control_mode = 'absolute'
+        self.last_update_thread = None
 
         self.draw_main_space()
 
@@ -273,37 +313,42 @@ class HeliosGUI():
         if len(self.helios) == 0:
             return
         else:
+            speed = 2
             h_idx = self.main_tab.index(self.main_tab.select())
             h = self.helios[h_idx]
-            h.azi_setpoint += 2.0
-            if h.azi_setpoint > 360.:
-                h.azi_setpoint -= 360.
-            self.update_position = True
+            tab = self.helios_tabs[h_idx]
+            cm = tab.control_mode.get()
+            if cm == 'sol':
+                tab.ory_azi += speed
+                if tab.ory_azi > 360.:
+                    tab.ory_azi -= 360
 
+            elif cm == 'abs':
+                tab.mir_azi += speed
+                if tab.mir_azi > 360.:
+                    tab.mir_azi -= 360
+
+            self.update_position = True
 
     def left_arrow(self, event):
-        if len(self.helios) == 0:
-            return
-        else:
-            h_idx = self.main_tab.index(self.main_tab.select())
-            h = self.helios[h_idx]
-            h.azi_setpoint -= 2.0
-            if h.azi_setpoint < 0:
-                h.azi_setpoint += 360.
-            self.update_position = True
-
-    def down_arrow(self, event):
         if len(self.helios) == 0:
             return
         else:
             speed = 2
             h_idx = self.main_tab.index(self.main_tab.select())
             h = self.helios[h_idx]
-            h.alt_setpoint -= speed
-            if h.alt_setpoint < 0.:
-                h.alt_setpoint += 360.
-            if h.alt_setpoint < 270 and h.alt_setpoint >= 180:
-                h.alt_setpoint = 270
+            tab = self.helios_tabs[h_idx]
+            cm = tab.control_mode.get()
+            if cm == 'sol':
+                tab.ory_azi -= speed
+                if tab.ory_azi < 0.:
+                    tab.ory_azi += 360
+
+            elif cm == 'abs':
+                tab.mir_azi -= speed
+                if tab.mir_azi < 0.:
+                    tab.mir_azi += 360
+
             self.update_position = True
 
     def up_arrow(self, event):
@@ -313,13 +358,55 @@ class HeliosGUI():
             speed = 2
             h_idx = self.main_tab.index(self.main_tab.select())
             h = self.helios[h_idx]
-            h.alt_setpoint += speed
-            if h.alt_setpoint > 360.:
-                h.alt_setpoint -= 360
+            tab = self.helios_tabs[h_idx]
+            cm = tab.control_mode.get()
+            if cm == 'sol':
+                print("Sol")
+                tab.ory_alt += speed
+                if tab.ory_alt > 360.:
+                    tab.ory_alt -= 360
 
-            if h.alt_setpoint > 90.0 and h.alt_setpoint < 180:
-                h.alt_setpoint = 90.
+                if tab.ory_alt > 90.0 and tab.ory_alt < 180:
+                    tab.ory_alt = 90.
+
+            elif cm == 'abs':
+                tab.mir_alt += speed
+                if tab.mir_alt > 360.:
+                    tab.mir_alt -= 360
+
+                if tab.mir_alt > 90.0 and tab.mir_alt < 180:
+                    tab.mir_alt = 90.
+
             self.update_position = True
+
+    def down_arrow(self, event):
+        if len(self.helios) == 0:
+            return
+        else:
+            speed = 2
+            h_idx = self.main_tab.index(self.main_tab.select())
+            h = self.helios[h_idx]
+            tab = self.helios_tabs[h_idx]
+            cm = tab.control_mode.get()
+            if cm == 'sol':
+                print("Sol")
+                tab.ory_alt -= speed
+                if tab.ory_alt < 0.:
+                    tab.ory_alt += 360
+
+                if tab.ory_alt < 270.0 and tab.ory_alt >= 180:
+                    tab.ory_alt = 270
+
+            elif cm == 'abs':
+                tab.mir_alt -= speed
+                if tab.mir_alt < 0.:
+                    tab.mir_alt += 360
+
+                if tab.mir_alt < 270.0 and tab.mir_alt >= 180:
+                    tab.mir_alt = 270
+
+            self.update_position = True
+
 
     def update(self):
         if len(self.helios) == 0:
@@ -333,10 +420,18 @@ class HeliosGUI():
 
     def send_motor_cmd(self):
         if self.update_position:
-            h_idx = self.main_tab.index(self.main_tab.select())
-            h = self.helios[h_idx]
-            thr = threading.Thread(target=h.absolute_move, args=(h.alt_setpoint, h.azi_setpoint))
-            thr.start() 
+            if self.last_update_thread is None or not self.last_update_thread.is_alive():
+                h_idx = self.main_tab.index(self.main_tab.select())
+                h = self.helios[h_idx]
+                tab = self.helios_tabs[h_idx]
+                cm = tab.control_mode.get()
+                if cm == 'sol':
+                    thr = threading.Thread(target=h.solar_move, args=(tab.ory_alt, tab.ory_azi))
+                elif cm == 'abs':
+                    thr = threading.Thread(target=h.absolute_move, args=(tab.mir_alt, tab.mir_azi))
+                thr.start() 
+                self.last_update_thread  = thr
+                self.update_position = False
         self.window.after(250, self.send_motor_cmd)
 
 
