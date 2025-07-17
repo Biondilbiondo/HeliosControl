@@ -103,7 +103,7 @@ class HeliosControlTab():
 
         self.control_mode = StringVar()
         self.scene_speed = DoubleVar()
-        self.control_mode.set("abs")
+        self.control_mode.set("dis")
         self.current_scene = np.array([])
 
         self.helios_canvas = Canvas(self.helios_tab, width=self.canva_w, height=self.canva_h, bg='white')
@@ -116,6 +116,7 @@ class HeliosControlTab():
         self.update_status_but = Button(self.helios_tab, text="Update", command=self.update_status)
         self.abs_control = Radiobutton(self.helios_tab, text="Absolute", variable=self.control_mode, value='abs')
         self.sol_control = Radiobutton(self.helios_tab, text="Solar", variable=self.control_mode, value='sol')
+        self.dis_control = Radiobutton(self.helios_tab, text="Disabled", variable=self.control_mode, value='dis')
         self.calibrate_but = Button(self.helios_tab, text="Calibrate")
         self.add_pt_but = Button(self.helios_tab, text="Add Point to Scene", command=self.add_point_to_scene)
         self.test_scene_but = Button(self.helios_tab, text="Test Scene", command=self.test_scene)
@@ -125,6 +126,7 @@ class HeliosControlTab():
         self.delete_scene_but = Button(self.helios_tab, text="Delete Scene", command=self.dialog_delete_scene)
         self.wifi_net_but = Button(self.helios_tab, text="Wifi Networks", command=self.dialog_wifi_net)
         self.sequence_but = Button(self.helios_tab, text="Sequences", command=self.dialog_sequence)
+        self.calibrate_but = Button(self.helios_tab, text="Calibrate", command=self.dialog_calibrate)
         self.scene_speed_scale = ttk.Scale(self.helios_tab, from_=0, to=1., orient="horizontal", variable=self.scene_speed)
 
 
@@ -136,11 +138,13 @@ class HeliosControlTab():
         self.ntp_label.place(x=10, y=110)
         self.update_status_but.place(x=10, y=130)
         self.wifi_net_but.place(x=10, y=200)
+        self.calibrate_but.place(x=10, y=240)
 
         self.helios_canvas.place(x=150, y=10)
 
-        self.sol_control.place(x=1110, y=10)
-        self.abs_control.place(x=1110, y=30)
+        self.sol_control.place(x=1110, y=10) 
+        self.abs_control.place(x=1160, y=10)
+        self.dis_control.place(x=1110, y=30)
         self.add_pt_but.place(x=1110, y=70)
         self.scene_speed_scale.place(x=1110, y=110)
         self.save_scene_but.place(x=1110, y=270)
@@ -195,7 +199,7 @@ class HeliosControlTab():
                                                     self.ory_azi,
                                                     (self.my_helios.lon, self.my_helios.lat), 
                                                     datetime.datetime.now(datetime.timezone.utc).isoformat()[:-6])
-            elif self.control_mode.get() == 'abs':
+            elif self.control_mode.get() == 'abs' or self.control_mode.get() == 'dis':
                 self.ory_alt, self.ory_azi = mir2ory(self.mir_alt, 
                                                     self.mir_azi,
                                                     (self.my_helios.lon, self.my_helios.lat), 
@@ -457,11 +461,189 @@ class HeliosControlTab():
         Button(dialog, text="Cancel", command=dialog.destroy).grid(row=row+3, 
                                                                    column=7, 
                                                                    padx=10, pady=10)
+        
+    def dialog_calibrate(self):
+        dialog = Toplevel()
+        dialog.wm_title("Calibrate Helios")
+        
+        def _read_enc():
+            self.my_helios.get_position()
+            lab_altazi_1.config(text="ALT {:+06.1f} AZI {:+06.1f}".format(self.my_helios.alt, self.my_helios.azi))
+        Label(dialog,
+              text=
+              """1. Check that the motors are running in the correct way, that 
+                    is clockwise for azi and to up for alt, try to move and then read the 
+                    encoders to ensure that everything is correct.  If not please switch 
+                    motor connection.""", width=80, wraplength=600).grid(row=0, column=0, columnspan=4, padx=10, pady=10)
+        Button(dialog, text="Alt +", command=lambda :self.my_helios.alt_move(1000, int(self.my_helios.cfg['PWM_MAX_VALUE']))).grid(row=1, column=0, padx=10, pady=10)
+        Button(dialog, text="Alt -", command=lambda :self.my_helios.alt_move(1000, -int(self.my_helios.cfg['PWM_MAX_VALUE']))).grid(row=1, column=1, padx=10, pady=10)
+        Button(dialog, text="Azi +", command=lambda :self.my_helios.azi_move(1000, int(self.my_helios.cfg['PWM_MAX_VALUE']))).grid(row=1, column=2, padx=10, pady=10)
+        Button(dialog, text="Azi -", command=lambda :self.my_helios.azi_move(1000, -int(self.my_helios.cfg['PWM_MAX_VALUE']))).grid(row=1, column=3, padx=10, pady=10)
+        Button(dialog, text="Read encoders", command=_read_enc).grid(row=2, column=1, padx=10, pady=10)
+        lab_altazi_1 = Label(dialog, text="ALT ------ AZI ------")
+        lab_altazi_1.grid(row=2, column=2, padx=10, pady=10)
+        ttk.Separator(dialog, orient=HORIZONTAL).grid(row=3, column=0, columnspan=4)
+
+        Label(dialog,
+              text=
+              """2. Go to zero as precisely as possible (especially for alt).""", 
+              width=80, wraplength=600).grid(row=4, column=0, columnspan=4, padx=10, pady=10)
+        def _set_alt_e0():
+            self.my_helios.get_position()
+            alte0 = self.my_helios.alt + self.my_helios.get_prm("alte0")
+            if(alte0 > 360):
+                alte0 -= 360
+            if(alte0 < 0 ):
+                alte0 += 360
+            self.my_helios.set_prm("alte0", alte0)
+            self.my_helios.reload_prm()
+        def _set_azi_e0():
+            self.my_helios.get_position()
+            azie0 = self.my_helios.azi + self.my_helios.get_prm("azie0")
+            if(azie0 > 360):
+                azie0 -= 360
+            if(azie0 < 0 ):
+                azie0 += 360
+            self.my_helios.set_prm("azie0", azie0)
+            self.my_helios.reload_prm()
+
+        speed_2_alt = DoubleVar()
+        speed_2_azi = DoubleVar()
+        Button(dialog, text="Alt +", command=lambda :self.my_helios.alt_move(int(speed_2_alt.get()), int(self.my_helios.cfg['PWM_MAX_VALUE']))).grid(row=5, column=0, padx=10, pady=10)
+        Button(dialog, text="Alt -", command=lambda :self.my_helios.alt_move(int(speed_2_alt.get()), -int(self.my_helios.cfg['PWM_MAX_VALUE']))).grid(row=5, column=1, padx=10, pady=10)
+        Button(dialog, text="Azi +", command=lambda :self.my_helios.azi_move(int(speed_2_azi.get()), int(self.my_helios.cfg['PWM_MAX_VALUE']))).grid(row=5, column=2, padx=10, pady=10)
+        Button(dialog, text="Azi -", command=lambda :self.my_helios.azi_move(int(speed_2_azi.get()), -int(self.my_helios.cfg['PWM_MAX_VALUE']))).grid(row=5, column=3, padx=10, pady=10)
+        Label(dialog, text="Alt Speed").grid(row=6, column=0, padx=10, pady=10)
+        ttk.Scale(dialog, from_=10, to=1000, orient="horizontal", variable=speed_2_alt).grid(row=6, column=1, padx=10, pady=10)
+        Label(dialog, text="Alt Speed").grid(row=6, column=2, padx=10, pady=10)
+        ttk.Scale(dialog, from_=10, to=1000, orient="horizontal", variable=speed_2_azi).grid(row=6, column=3, padx=10, pady=10)
+        Button(dialog, text="Set Alt Zero", command=_set_alt_e0).grid(row=7, column=0, columnspan=2, padx=10, pady=10)
+        Button(dialog, text="Set Azi Zero", command=_set_azi_e0).grid(row=7, column=2, columnspan=2, padx=10, pady=10)
+        ttk.Separator(dialog, orient=HORIZONTAL).grid(row=8, column=0, columnspan=4)
+
+        Label(dialog,
+              text=
+              """3. Now I will try to go at 90.0 degrees on alt axis and on azi axis, 
+                 you should then correct the real position (eg using a bubble) and finally,
+                 ask to set the corrections (if precision resistor are used this should not
+                 needed).""", 
+              width=80, wraplength=600).grid(row=9, column=0, columnspan=4, padx=10, pady=10)
+        speed_3_alt = DoubleVar()
+        speed_3_azi = DoubleVar()
+
+        def _alt_v2d_corr():
+            self.my_helios.get_position()
+            v2d = self.my_helios.get_prm('altv2d')
+            v2d *= self.my_helios.alt/90.
+            self.my_helios.set_prm('altv2d', v2d)
+
+        def _azi_v2d_corr():
+            self.my_helios.get_position()
+            v2d = self.my_helios.get_prm('aziv2d')
+            v2d *= self.my_helios.azi/90.
+            self.my_helios.set_prm('aziv2d', v2d)
+
+        Button(dialog, text="Go to 90.0 90.0", command=lambda :self.my_helios.absolute_move(90., 90.)).grid(row=10, column=0, columnspan=4, padx=10, pady=10)
+        Button(dialog, text="Alt +", command=lambda :self.my_helios.alt_move(int(speed_3_alt.get()), int(self.my_helios.cfg['PWM_MAX_VALUE']))).grid(row=11, column=0, padx=10, pady=10)
+        Button(dialog, text="Alt -", command=lambda :self.my_helios.alt_move(int(speed_3_alt.get()), -int(self.my_helios.cfg['PWM_MAX_VALUE']))).grid(row=11, column=1, padx=10, pady=10)
+        Button(dialog, text="Azi +", command=lambda :self.my_helios.azi_move(int(speed_3_azi.get()), int(self.my_helios.cfg['PWM_MAX_VALUE']))).grid(row=11, column=2, padx=10, pady=10)
+        Button(dialog, text="Azi -", command=lambda :self.my_helios.azi_move(int(speed_3_azi.get()), -int(self.my_helios.cfg['PWM_MAX_VALUE']))).grid(row=11, column=3, padx=10, pady=10)
+        Label(dialog, text="Alt Speed").grid(row=12, column=0, padx=10, pady=10)
+        ttk.Scale(dialog, from_=10, to=1000, orient="horizontal", variable=speed_3_alt).grid(row=12, column=1, padx=10, pady=10)
+        Label(dialog, text="Alt Speed").grid(row=12, column=2, padx=10, pady=10)
+        ttk.Scale(dialog, from_=10, to=1000, orient="horizontal", variable=speed_3_azi).grid(row=12, column=3, padx=10, pady=10)
+        Button(dialog, text="Set Alt Correction", command=_alt_v2d_corr).grid(row=13, column=0, columnspan=2, padx=10, pady=10)
+        Button(dialog, text="Set Azi Correction", command=_azi_v2d_corr).grid(row=13, column=2, columnspan=2, padx=10, pady=10)
+        ttk.Separator(dialog, orient=HORIZONTAL).grid(row=14, column=0, columnspan=4)
+
+        Label(dialog,
+              text=
+              """4. Find out minimum and maximum speed parameters for the system. This is automatic,
+                 the unit will move a bit...""", 
+              width=80, wraplength=600).grid(row=15, column=0, columnspan=4, padx=10, pady=10)
+
+        def _calibrate_speed():
+            h = self.my_helios
+            h.absolute_move(h.get_prm('alte0')+180, h.get_prm('azie0')+180)
+
+            def azi_move_get_speed(pwm, t=2):
+                azi0 = h.get_position()[1]
+                h.azi_move(t*1000, pwm)
+                azi1 = h.get_position()[1]
+                if azi1 < azi0:
+                    azi1 += 360
+                h.azi_move(t*1000, -pwm)
+                return (azi1-azi0) / t
+            
+            def alt_move_get_speed(pwm, t=2):
+                alt0 = h.get_position()[0]
+                h.alt_move(t*1000, pwm)
+                alt1 = h.get_position()[0]
+                if alt1 < alt0:
+                    alt1 += 360
+                h.alt_move(t*1000, -pwm)
+                return (alt1-alt0) / t
+            
+            azi_max_angular_speed = azi_move_get_speed(int(self.my_helios.cfg['PWM_MAX_VALUE']))
+            alt_max_angular_speed = alt_move_get_speed(int(self.my_helios.cfg['PWM_MAX_VALUE']))
+            h.set_prm("alt_Msv", alt_max_angular_speed)
+            h.set_prm("azi_Msv", azi_max_angular_speed)
+
+            for pwm in range(int(self.my_helios.cfg['PWM_MAX_VALUE']), 0, -10):
+                if alt_move_get_speed(pwm) < 2.0:
+                    alt_min_speed_pwm = pwm
+                    break
+            for pwm in range(alt_min_speed_pwm, int(self.my_helios.cfg['PWM_MAX_VALUE'])):
+                if alt_move_get_speed(pwm, t=5) > .5:
+                    alt_min_speed_pwm = pwm
+                    break
+
+            for pwm in range(int(self.my_helios.cfg['PWM_MAX_VALUE']), 0, -10):
+                if azi_move_get_speed(pwm) < 2.0:
+                    azi_min_speed_pwm = pwm
+                    break
+            for pwm in range(azi_min_speed_pwm, int(self.my_helios.cfg['PWM_MAX_VALUE'])):
+                if azi_move_get_speed(pwm, t=5) > .5:
+                    azi_min_speed_pwm = pwm
+                    break
+
+            data = []
+            for pwm in range(alt_min_speed_pwm, int(self.my_helios.cfg['PWM_MAX_VALUE']), 5):
+                data += [[pwm, alt_move_get_speed(pwm, t=3)]]
+
+            data = np.array(data)
+            alts2p = np.polyfit(data[:,1], data[:,0], 1)[0]
+            h.set_prm("alt_s2p", alts2p)
+
+            data = []
+            for pwm in range(azi_min_speed_pwm, int(self.my_helios.cfg['PWM_MAX_VALUE']), 5):
+                data += [[pwm, azi_move_get_speed(pwm, t=3)]]
+
+            data = np.array(data)
+            azis2p = np.polyfit(data[:,1], data[:,0], 1)[0]
+            h.set_prm("azi_s2p", azis2p)
+
+        Button(dialog, text="Start", command=_calibrate_speed).grid(row=16, column=0, columnspan=4, padx=10, pady=10)
+
+        Label(dialog,
+              text=
+              """5. Set Latitude and Longitude of your location""", 
+              width=80, wraplength=600).grid(row=17, column=0, columnspan=4, padx=10, pady=10)
+        speed_3_alt = DoubleVar()
+        speed_3_azi = DoubleVar()
+
+        lat_entry = Entry(dialog, text="0.000 LAT")
+        lat_entry.grid(row=19, column=0, padx=10, pady=10)
+        lon_entry = Entry(dialog, text="0.000 LON")
+        lon_entry.grid(row=19, column=1, padx=10, pady=10)
+        Button(dialog, text="Set", command=lambda :self.my_helios.set_geo(float(lat_entry.get()), float(lon_entry.get()))).grid(row=19, column=3, columnspan=2, padx=10, pady=10)
+
 
     
 
 class HeliosGUI():
     def __init__(self):
+        self.FRAMERATE = 100
         self.helios = []
 
         self.window = ThemedTk(theme="adapta")
@@ -499,7 +681,7 @@ class HeliosGUI():
         self.draw_main_space()
 
         self.window.after(1000, self.send_motor_cmd)
-        self.window.after(10, self.update)
+        self.window.after(self.FRAMERATE, self.update)
         self.window.after(30000, self.keep_helios_alive)
 
     def destroy_main_space(self):
@@ -616,7 +798,6 @@ class HeliosGUI():
             tab = self.helios_tabs[h_idx]
             cm = tab.control_mode.get()
             if cm == 'sol':
-                print("Sol")
                 tab.ory_alt += speed
                 if tab.ory_alt > 360.:
                     tab.ory_alt -= 360
@@ -644,7 +825,6 @@ class HeliosGUI():
             tab = self.helios_tabs[h_idx]
             cm = tab.control_mode.get()
             if cm == 'sol':
-                print("Sol")
                 tab.ory_alt -= speed
                 if tab.ory_alt < 0.:
                     tab.ory_alt += 360
@@ -671,21 +851,24 @@ class HeliosGUI():
             h = self.helios[h_idx]
             self.helios_tabs[h_idx].update()
             
-        self.window.after(10, self.update)
+        self.window.after(self.FRAMERATE, self.update)
 
     def send_motor_cmd(self):
         if self.update_position:
             self.update_position = False
-            return
+            print("send mot control")
             if self.last_update_thread is None or not self.last_update_thread.is_alive():
                 h_idx = self.main_tab.index(self.main_tab.select())
                 h = self.helios[h_idx]
                 tab = self.helios_tabs[h_idx]
                 cm = tab.control_mode.get()
+                print("cm")
                 if cm == 'sol':
                     thr = threading.Thread(target=h.solar_move, args=(tab.ory_alt, tab.ory_azi))
                 elif cm == 'abs':
                     thr = threading.Thread(target=h.absolute_move, args=(tab.mir_alt, tab.mir_azi))
+                elif cm == 'dis':
+                    return
                 thr.start() 
                 self.last_update_thread  = thr
         self.window.after(250, self.send_motor_cmd)

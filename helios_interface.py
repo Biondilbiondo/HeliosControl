@@ -55,15 +55,7 @@ class HeliosUnit:
     def __init__(self, ip_addr):
         self.ip_addr = ip_addr
 
-        try:
-            self.tn = telnetlib.Telnet(self.ip_addr, timeout=10)
-        except TimeoutError:
-            self.tn = None
-            return
-        
-        self.tn.read_until("> ".encode(encoding='ascii'))
-        time.sleep(1.)
-        self.cmd_get_answare("")
+        self.connect()
 
         self.id = self.get_id()
 
@@ -76,11 +68,14 @@ class HeliosUnit:
         self.sequence_max = 120
         self.sequence_dt = 0.5
 
+        self.cfg = {}
+
         self.get_position()
         self.get_list_scene()
         self.get_wifi_conn()
         self.get_schedule()
         self.get_geo()
+        self.get_cfg()
 
         self.alt_setpoint = self.alt
         self.azi_setpoint = self.azi
@@ -91,11 +86,19 @@ class HeliosUnit:
     def __del__(self):
         self.disconnect()
 
-        
     def reboot(self):
         self.cmd_get_answare("reboot", 0)
         time.sleep(10)
 
+    def connect(self):
+        try:
+            self.tn = telnetlib.Telnet(self.ip_addr, timeout=10)
+        except TimeoutError:
+            self.tn = None
+                
+        self.tn.read_until("> ".encode(encoding='ascii'))
+        time.sleep(1.)
+        self.cmd_get_answare("")
 
     def solar_move(self, alt, azi):
         self.cmd_get_answare("sc {:.1f} {:.1f}".format(alt, azi))
@@ -163,11 +166,19 @@ class HeliosUnit:
         self.cmd_get_answare('quit', maxlines=0)
         self.tn = None
 
-    def alt_move(self, t):
-        self.cmd_get_answare('alt-move {:d}'.format(t))
+    def alt_move(self, t, s):
+        self.cmd_get_answare('alt-move {:d} {:d}'.format(t,s))
     
-    def azi_move(self, t):
-        self.cmd_get_answare('azi-move {:d}'.format(t))
+    def azi_move(self, t, s):
+        self.cmd_get_answare('azi-move {:d} {:d}'.format(t,s))
+
+    def get_cfg(self):
+        ans = self.cmd_get_answare('configs')
+        for a in ans:
+            self.cfg[a.split()[0]] = float(a.split()[1])
+    
+    def reload_prm(self):
+        ans = self.cmd_get_answare('reload-prm')
 
     def absolute_move(self, alt, azi):
         self.alt_setpoint = alt
@@ -309,7 +320,7 @@ class HeliosUnit:
         assert tok[3] == 'AZI'
         self.azi = float(tok[4])
 
-        return True
+        return [self.alt, self.azi]
     
     def sync_rtc_ntp(self):
         ans = self.cmd_get_answare('sync-rtc-ntp')
@@ -468,8 +479,13 @@ class HeliosUnit:
         #print(self.socket.send("\r\n".encode()))
         ans = []
         for i in range(maxlines):
-            tmpa = self.tn.read_until(b' > ')
-            print(tmpa)
+            try:
+                tmpa = self.tn.read_until(b' > ')
+            except:
+                self.connect()
+                self.tn.open(self.ip)
+                return None
+            print(tmpa.decode())
             for l in tmpa.decode().split('\n'):
                 if l:
                     ans += [l]
