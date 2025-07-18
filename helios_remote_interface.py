@@ -15,11 +15,12 @@ def _create_circle(self, c, r, **kwargs):
     return self.create_oval(x-r, y-r, x+r, y+r, **kwargs)
 Canvas.create_circle = _create_circle
 
-def _set_text(self, text):
+def _set_text(self:Entry, text):
+    oldstate = self["state"]
     self.config(state='normal')
     self.delete(0,END)
     self.insert(0,text)
-    self.config(state='readonly')
+    self.config(state=oldstate)
     return
 Entry.set = _set_text
 
@@ -125,7 +126,17 @@ class HeliosControlTab():
         self.load_scene_but = Button(self.helios_tab, text="Load Scene", command=self.dialog_load_scene)
         self.delete_scene_but = Button(self.helios_tab, text="Delete Scene", command=self.dialog_delete_scene)
         self.wifi_net_but = Button(self.helios_tab, text="Wifi Networks", command=self.dialog_wifi_net)
+        self.wifi_sch_but = Button(self.helios_tab, text="Wifi Schedule", command=self.dialog_wifi_sch)
         self.sequence_but = Button(self.helios_tab, text="Sequences", command=self.dialog_sequence)
+        self.system_config_but = Button(self.helios_tab, text="Configs", command=self.dialog_config)
+        self.calibrate_but = Button(self.helios_tab, text="Calibrate", command=self.dialog_calibrate)
+        if self.my_helios.get_status()['driver']: 
+            driver_but_str = "Turn OFF" 
+            driver_but_color = 'red'
+        else:
+            driver_but_str = "Turn ON"
+            driver_but_color = 'green'
+        self.driver_but = Button(self.helios_tab, text=driver_but_str, command=self.cmd_driver_switch, background=driver_but_color)
         self.calibrate_but = Button(self.helios_tab, text="Calibrate", command=self.dialog_calibrate)
         self.scene_speed_scale = ttk.Scale(self.helios_tab, from_=0, to=1., orient="horizontal", variable=self.scene_speed)
 
@@ -138,7 +149,10 @@ class HeliosControlTab():
         self.ntp_label.place(x=10, y=110)
         self.update_status_but.place(x=10, y=130)
         self.wifi_net_but.place(x=10, y=200)
-        self.calibrate_but.place(x=10, y=240)
+        self.wifi_sch_but.place(x=10, y=240)
+        self.calibrate_but.place(x=10, y=350)
+        self.driver_but.place(x=10, y=390)
+        self.system_config_but.place(x=10, y=310)
 
         self.helios_canvas.place(x=150, y=10)
 
@@ -238,6 +252,7 @@ class HeliosControlTab():
             self.ntp_label.config(text = "NTP OK")
         else:
             self.ntp_label.config(text = "NTP NOT OK")
+
         self.my_helios.get_position()
         self.pos_label.config(text = "{:.1f} {:.1f}".format(self.my_helios.alt, self.my_helios.azi))
         bat_lev = self.my_helios.battery_charge()
@@ -426,7 +441,7 @@ class HeliosControlTab():
         row = i
         ttk.Separator(dialog,orient=HORIZONTAL).grid(row=row, columnspan=9, sticky="ew")
 
-        seq = Entry(dialog, text="DIOLUPO", width=150, state='readonly')
+        seq = Entry(dialog, width=150, state='readonly')
         seq.grid(row=row+1, column=6, columnspan=3, padx=10, pady=10)
         
         h_entry = Entry(dialog, width=2)
@@ -461,7 +476,60 @@ class HeliosControlTab():
         Button(dialog, text="Cancel", command=dialog.destroy).grid(row=row+3, 
                                                                    column=7, 
                                                                    padx=10, pady=10)
+
+    def dialog_wifi_sch(self):
+        dialog = Toplevel()
+        dialog.wm_title("Manage Helios Wifi Schedule")
         
+        def dialog_delete_act(s):
+            self.my_helios.remove_schedule(s)
+            dialog.destroy()
+
+        def dialog_add_act():
+            dt = datetime.datetime.fromisoformat("1900-01-01 {:02d}:{:02d}:{:02d}".format(int(h_entry.get()), int(m_entry.get()), int(s_entry.get())))
+            tz_delta = datetime.datetime.now(datetime.timezone.utc).astimezone().utcoffset()
+            utc_time = (dt-tz_delta).time()
+            hs = HeliosSchedule(0, str(utc_time), 'wifi')
+            self.my_helios.add_schedule(hs)
+            dialog.destroy()
+
+        i = 0
+        for s in self.my_helios.schedule:
+            if s.type == 'sequence':
+                continue
+            if (i%2)*2 == 0:
+                cs = 5
+                col = 0
+            else:
+                cs = 1
+                col = 5
+            Label(dialog, text=str(s)[4:]).grid(row=i//2, column=(i%2)*2+col, padx=10, pady=10,columnspan=cs)
+            a = partial(dialog_delete_act, s)
+            Button(dialog, text="Remove", command=a).grid(row=i//2, column=(i%2)*2+6)
+            i += 1
+  
+        row = i
+        ttk.Separator(dialog,orient=HORIZONTAL).grid(row=row, columnspan=9, sticky="ew")
+        
+        h_entry = Entry(dialog, width=2)
+        h_entry.grid(row=row+1, column=0, padx=0, pady=10)
+        Label(dialog, text=":").grid(row=row+1, column=1, padx=0, pady=10)
+        m_entry = Entry(dialog, width=2)
+        m_entry.grid(row=row+1, column=2, padx=0, pady=0)
+        Label(dialog, text=":").grid(row=row+1, column=3, padx=0, pady=10)
+        s_entry = Entry(dialog, width=2)
+        s_entry.grid(row=row+1, column=4, padx=0, pady=10)
+
+
+        Button(dialog, text="Add WiFi Schedule", command=dialog_add_act).grid(row=row+1, 
+                                                                column=6,
+                                                                padx=10, pady=10)
+    
+        Button(dialog, text="Cancel", command=dialog.destroy).grid(row=row+1, 
+                                                                   column=7, 
+                                                                   padx=10, pady=10)
+        
+
     def dialog_calibrate(self):
         dialog = Toplevel()
         dialog.wm_title("Calibrate Helios")
@@ -536,12 +604,14 @@ class HeliosControlTab():
             v2d = self.my_helios.get_prm('altv2d')
             v2d *= self.my_helios.alt/90.
             self.my_helios.set_prm('altv2d', v2d)
+            self.my_helios.reload_prm()
 
         def _azi_v2d_corr():
             self.my_helios.get_position()
             v2d = self.my_helios.get_prm('aziv2d')
             v2d *= self.my_helios.azi/90.
             self.my_helios.set_prm('aziv2d', v2d)
+            self.my_helios.reload_prm()
 
         Button(dialog, text="Go to 90.0 90.0", command=lambda :self.my_helios.absolute_move(90., 90.)).grid(row=10, column=0, columnspan=4, padx=10, pady=10)
         Button(dialog, text="Alt +", command=lambda :self.my_helios.alt_move(int(speed_3_alt.get()), int(self.my_helios.cfg['PWM_MAX_VALUE']))).grid(row=11, column=0, padx=10, pady=10)
@@ -588,6 +658,7 @@ class HeliosControlTab():
             alt_max_angular_speed = alt_move_get_speed(int(self.my_helios.cfg['PWM_MAX_VALUE']))
             h.set_prm("alt_Msv", alt_max_angular_speed)
             h.set_prm("azi_Msv", azi_max_angular_speed)
+            self.my_helios.reload_prm()
 
             for pwm in range(int(self.my_helios.cfg['PWM_MAX_VALUE']), 0, -10):
                 if alt_move_get_speed(pwm) < 2.0:
@@ -622,6 +693,7 @@ class HeliosControlTab():
             data = np.array(data)
             azis2p = np.polyfit(data[:,1], data[:,0], 1)[0]
             h.set_prm("azi_s2p", azis2p)
+            self.my_helios.reload_prm()
 
         Button(dialog, text="Start", command=_calibrate_speed).grid(row=16, column=0, columnspan=4, padx=10, pady=10)
 
@@ -638,6 +710,59 @@ class HeliosControlTab():
         lon_entry.grid(row=19, column=1, padx=10, pady=10)
         Button(dialog, text="Set", command=lambda :self.my_helios.set_geo(float(lat_entry.get()), float(lon_entry.get()))).grid(row=19, column=3, columnspan=2, padx=10, pady=10)
 
+    def cmd_driver_switch(self):
+        if self.my_helios.get_status()['driver']:
+            self.my_helios.cmd_get_answare('driver-off')
+            self.driver_but.config(text="Turn ON", background='green')
+        else:
+            self.my_helios.cmd_get_answare('driver-on')
+            self.driver_but.config(text="Turn OFF", background='red')
+        self.update_status()
+    
+    def dialog_config(self):
+        dialog = Toplevel()
+        dialog.wm_title("Manage Helios Configs")
+
+        self.my_helios.get_cfg()
+        def set_act_int(i, c):
+            self.my_helios.set_prm(HELIOS_INT_EDITABLE_CFG[c], int(entries[i].get()))
+            self.my_helios.reload_prm()
+            dialog.destroy()
+        def set_act_float(i, c):
+            self.my_helios.set_prm(HELIOS_FLOAT_EDITABLE_CFG[c], float(entries[i].get()))
+            self.my_helios.reload_prm()
+            dialog.destroy()
+
+        entries = []
+        ncol = 3
+        for i, c in enumerate(sorted(self.my_helios.cfg.keys())):
+            Label(dialog, text=c, width=30).grid(row=i//ncol, column=(i%ncol)*3, padx=10, pady=10)
+            print("'{:s}'".format(c))
+            
+            if c in HELIOS_INT_COMPTIME_CFG:
+                entries += [Entry(dialog, width=10, state="readonly")]
+                entries[i].grid(row=i//ncol, column=1+(i%ncol)*3, padx=10, pady=10)
+                entries[i].set("{:d}".format(int(self.my_helios.cfg[c])))
+            elif c in HELIOS_FLOAT_COMPTIME_CFG:
+                entries += [Entry(dialog, width=10, state="readonly")]
+                entries[i].grid(row=i//ncol, column=1+(i%ncol)*3, padx=10, pady=10)
+                entries[i].set("{:f}".format(self.my_helios.cfg[c]))
+
+            elif c in HELIOS_INT_EDITABLE_CFG:
+                entries += [Entry(dialog, width=10)]
+                entries[i].grid(row=i//ncol, column=1+(i%ncol)*3, padx=10, pady=10)
+                entries[i].set("{:d}".format(int(self.my_helios.cfg[c])))
+                a = partial(set_act_int, i, c)
+                Button(dialog, text="Set", command=a).grid(row=i//ncol, column=2+(i%ncol)*3, padx=10, pady=10)
+            elif c in HELIOS_FLOAT_EDITABLE_CFG:
+                entries += [Entry(dialog, width=10)]
+                entries[i].grid(row=i//ncol, column=1+(i%ncol)*3, padx=10, pady=10)
+                entries[i].set("{:f}".format(self.my_helios.cfg[c]))
+                a = partial(set_act_float, i, c)
+                Button(dialog, text="Set", command=a).grid(row=i//ncol, column=2+(i%ncol)*3, padx=10, pady=10)
+            else:
+                print("Unknown config!")
+        
 
     
 
@@ -666,6 +791,7 @@ class HeliosGUI():
         self.window.bind("<Left>", self.left_arrow)
         self.window.bind("<Up>", self.up_arrow)
         self.window.bind("<Down>", self.down_arrow)
+        self.window.bind("<space>", self.space_key)
 
         self.add_unit_dialog = None
         self.add_unit_dialog_entry_ip = None
@@ -759,13 +885,14 @@ class HeliosGUI():
                 tab.ory_azi += speed
                 if tab.ory_azi > 360.:
                     tab.ory_azi -= 360
+                self.update_position = True
 
             elif cm == 'abs':
                 tab.mir_azi += speed
                 if tab.mir_azi > 360.:
                     tab.mir_azi -= 360
 
-            self.update_position = True
+                self.update_position = True
 
     def left_arrow(self, event):
         if len(self.helios) == 0:
@@ -780,13 +907,14 @@ class HeliosGUI():
                 tab.ory_azi -= speed
                 if tab.ory_azi < 0.:
                     tab.ory_azi += 360
+                self.update_position = True
 
             elif cm == 'abs':
                 tab.mir_azi -= speed
                 if tab.mir_azi < 0.:
                     tab.mir_azi += 360
 
-            self.update_position = True
+                self.update_position = True
 
     def up_arrow(self, event):
         if len(self.helios) == 0:
@@ -804,6 +932,7 @@ class HeliosGUI():
 
                 if tab.ory_alt > 90.0 and tab.ory_alt < 180:
                     tab.ory_alt = 90.
+                self.update_position = True
 
             elif cm == 'abs':
                 tab.mir_alt += speed
@@ -813,7 +942,7 @@ class HeliosGUI():
                 if tab.mir_alt > 90.0 and tab.mir_alt < 180:
                     tab.mir_alt = 90.
 
-            self.update_position = True
+                self.update_position = True
 
     def down_arrow(self, event):
         if len(self.helios) == 0:
@@ -831,6 +960,8 @@ class HeliosGUI():
 
                 if tab.ory_alt < 270.0 and tab.ory_alt >= 180:
                     tab.ory_alt = 270
+                self.update_position = True
+
 
             elif cm == 'abs':
                 tab.mir_alt -= speed
@@ -840,7 +971,19 @@ class HeliosGUI():
                 if tab.mir_alt < 270.0 and tab.mir_alt >= 180:
                     tab.mir_alt = 270
 
-            self.update_position = True
+                self.update_position = True
+
+    def space_key(self, event):
+        if len(self.helios) == 0:
+            return
+        else:
+            h_idx = self.main_tab.index(self.main_tab.select())
+            h = self.helios[h_idx]
+            tab = self.helios_tabs[h_idx]
+            cm = tab.control_mode.get()
+            if cm == 'sol' or cm == 'abs':
+                tab.add_point_to_scene()
+
 
 
     def update(self):
@@ -868,6 +1011,7 @@ class HeliosGUI():
                 elif cm == 'abs':
                     thr = threading.Thread(target=h.absolute_move, args=(tab.mir_alt, tab.mir_azi))
                 elif cm == 'dis':
+                    self.last_update_thread = None
                     return
                 thr.start() 
                 self.last_update_thread  = thr

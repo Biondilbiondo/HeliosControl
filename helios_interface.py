@@ -19,6 +19,63 @@ def get_sun_position(loc, t):
     az = sun.transform_to(altaz).az.deg
     return az, alt
 
+HELIOS_FLOAT_EDITABLE_CFG = {                                                                                                                                                                                                           
+ "ALT_ENCODER_ZERO": "alte0",
+ "ALT_KP": "alt_kp",
+ "ALT_MIN_E": "alt_me",
+ "AZI_ENCODER_ZERO": "azie0",
+ "AZI_KP": "azi_kp",
+ "AZI_MIN_E": "azi_me",
+ "GEO_LAT": "lat",
+ "GEO_LON": "lon",
+ "AZI_MAX_SPEED_VALUE":  "azi_Msv",
+ "AZI_VOLT_TO_DEG": "aziv2d",
+ "ALT_MAX_SPEED_VALUE": "alt_Msv",
+ "ALT_VOLT_TO_DEG": "aziv2d",
+ "SPEED_TO_PWM_ALT": "alt_s2p",
+ "SPEED_TO_PWM_AZI": "azi_s2p",
+ "SLEEP_ALT": "altnap",
+ "SLEEP_AZI": "azinap"}
+
+HELIOS_INT_EDITABLE_CFG = {"ENCODER_OVERSAMPLING": 'overs',
+                            "LAST_NETWORK":'lastnet',
+                            "PWM_MIN_ALT": 'alt_mPWM',
+                            "PWM_MIN_AZI": 'azi_mPWM',
+                            "LOG_LEVEL": 'logl',
+                            "LOG_DELETE_AFTER_DAYS": 'logr'}
+
+HELIOS_INT_COMPTIME_CFG = ["MAX_BLIND_MOVE_TIME_MS",
+"MAX_DAILY_TASKS",
+"MAX_LOG_FILES",
+"MAX_SCENES",
+"MAX_SCENES_IN_SEQUENCE",
+"MAX_SLEEP_S",
+"MAX_WIFI_NETWORKS",
+"N_WIFI_ATTEMPTS",
+"SAFETY_MAX_YEAR",
+"SAFETY_MIN_YEAR",
+"SAFETY_TIME_BEFORE_FIRST_SCENE",
+"SAFETY_TIME_BEFORE_SEQUENCE",
+"SCENE_LEN",
+"SCENE_LEN_SECONDS",
+"SCHEDULE_TIME_DELTA",
+"SLEEP_TIME_S",
+"TELNET_WATCHDOG_TIME",
+"WAKEUP_TIME_BEFORE_SCHEDULE_S",
+"WIFI_WATCHDOG_TIME",
+"PWM_MAX_VALUE"]
+
+HELIOS_FLOAT_COMPTIME_CFG = [
+"ATM_PRESSURE",
+"ATM_TEMPERATURE",
+"BATTERY_MAX_mV",
+"BATTERY_MIN_mV",
+"BATTERY_R1_kOHM",
+"BATTERY_R2_kOHM",
+"BATTERY_VOLTAGE_DIVIDER_FAC",
+"MIN_ALLOWED_SPEED",
+"WATCHDOG_TIME_FACTOR"]
+
 class HeliosSchedule:
     def __init__(self, sch_id, timestr, sch_type, sequence=[]):
         self.time = datetime.datetime.strptime(timestr,"%H:%M:%S").time()
@@ -122,8 +179,11 @@ class HeliosUnit:
     def set_geo(self, lat, lon):
         return self.cmd_get_answare('set-geo {:.3f} {:.3f}'.format(lat, lon)) is not None
     
-    def set_prm(self, key:str, value:float):
-        ans = self.cmd_get_answare("set {:s} {:f}".format(key, value))
+    def set_prm(self, key:str, value):
+        if key in HELIOS_INT_EDITABLE_CFG.values():
+            ans = self.cmd_get_answare("set {:s} {:d}".format(key, value))
+        else:
+            ans = self.cmd_get_answare("set {:s} {:d}".format(key, value))
         try:
             assert ans is not None
         except AssertionError:
@@ -211,6 +271,10 @@ class HeliosUnit:
             res['intrtc'] = True
         if ans[3].startswith('external ADC: OK'):
             res['adc'] = True
+        if ans[4].startswith('driver is ON'):
+            res['driver'] = True
+        else:
+            res['driver'] = False
         return res
     
     def list_dir(self, dir):
@@ -236,12 +300,15 @@ class HeliosUnit:
         if name in self.scenes:
             scene_id = self.scenes[name]
             if self.scene_is_used(name):
+                print("Scene is used!")
                 return None
             self._remove_scene(scene_id)
             for sn in self.scenes:
                 if self.scenes[sn] > scene_id:
                     self.scenes[sn] -= 1
             del self.scenes[name]
+        else:
+            print("Scene name wrong ", name)
 
     def get_scene(self, name):
         if name in self.scenes:
