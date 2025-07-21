@@ -325,7 +325,7 @@ class HeliosControlTab():
 
         for i, s in enumerate(self.my_helios.scenes.keys()):
             a = partial(dialog_load_act, s)
-            b = Button(dialog, text=s, command=a)
+            b = Button(dialog, text="{:s} ({:.1f} s)".format(s, self.my_helios.scenes_len[s]/1000), command=a)
             b.grid(row=i//3, column=i%3, padx=10, pady=10)
 
         Button(dialog, text="Cancel", command=dialog.destroy).grid(row=len(self.my_helios.scenes.keys())//3+1, 
@@ -358,7 +358,7 @@ class HeliosControlTab():
 
         for i, s in enumerate(self.my_helios.scenes.keys()):
             a = partial(dialog_delete_act, s)
-            b = Button(dialog, text=s, command=a)
+            b = Button(dialog, text="{:s} ({:.1f} s)".format(s, self.my_helios.scenes_len[s]/1000), command=a)
             b.grid(row=i//3, column=i%3, padx=10, pady=10)
         
         Button(dialog, text="Cancel", command=dialog.destroy).grid(row=len(self.my_helios.scenes.keys())//3+1, 
@@ -413,15 +413,25 @@ class HeliosControlTab():
             dt = datetime.datetime.fromisoformat("1900-01-01 {:02d}:{:02d}:{:02d}".format(int(h_entry.get()), int(m_entry.get()), int(s_entry.get())))
             tz_delta = datetime.datetime.now(datetime.timezone.utc).astimezone().utcoffset()
             utc_time = (dt-tz_delta).time()
-            hs = HeliosSchedule(0, str(utc_time), 'sequence', seq.get().split())
+            if everyday.get() == 0:
+                y = int(year_entry.get())
+                m = int(month_entry.get())
+                d = int(day_entry.get())
+            else:
+                y = None
+                m = None
+                d = None
+            hs = HeliosSchedule(0, str(utc_time), 'sequence', seq.get().split(), y=y, m=m, d=d)
             self.my_helios.add_schedule(hs)
             dialog.destroy()
 
         def dialog_add_scene_act(s):
             seq.set(seq.get()+' '+s)
+            len_entry.set("{:.1f} s".format(sum([self.my_helios.scenes_len[x] for x in seq.get().split()])/1000))
 
         def dialog_remove_scene_act():
             seq.set(' '.join(seq.get().split()[:-1]))
+            len_entry.set("{:.1f} s".format(sum([self.my_helios.scenes_len[x] for x in seq.get().split()])/1000))
 
         i = 0
         for s in self.my_helios.schedule:
@@ -439,19 +449,47 @@ class HeliosControlTab():
             i += 1
   
         row = i
-        ttk.Separator(dialog,orient=HORIZONTAL).grid(row=row, columnspan=9, sticky="ew")
+        ttk.Separator(dialog,orient=HORIZONTAL).grid(row=row, columnspan=10, sticky="ew")
+        
 
         seq = Entry(dialog, width=150, state='readonly')
-        seq.grid(row=row+1, column=6, columnspan=3, padx=10, pady=10)
+        seq.grid(row=row+2, column=6, columnspan=3, padx=10, pady=10)
+
+        def _everyday_tog():
+            print(everyday.get())
+            if everyday.get() == 0:
+                day_entry.config(state="normal")
+                month_entry.config(state="normal")
+                year_entry.config(state="normal")
+            else:
+                day_entry.config(state="disabled")
+                month_entry.config(state="disabled")
+                year_entry.config(state="disabled")
+
+
+        everyday = IntVar()
+
+        Checkbutton(dialog, text="Everyday", variable=everyday, command=_everyday_tog).grid(row=row+1, column=6,padx=10, pady=10)
+        day_entry = Entry(dialog, width=2)
+        day_entry.grid(row=row+1, column=0, padx=0, pady=10)
+        Label(dialog, text="-").grid(row=row+1, column=1, padx=0, pady=10)
+        month_entry = Entry(dialog, width=2)
+        month_entry.grid(row=row+1, column=2, padx=0, pady=0)
+        Label(dialog, text="-").grid(row=row+1, column=3, padx=0, pady=10)
+        year_entry = Entry(dialog, width=4)
+        year_entry.grid(row=row+1, column=4, padx=0, pady=10)
         
         h_entry = Entry(dialog, width=2)
-        h_entry.grid(row=row+1, column=0, padx=0, pady=10)
-        Label(dialog, text=":").grid(row=row+1, column=1, padx=0, pady=10)
+        h_entry.grid(row=row+2, column=0, padx=0, pady=10)
+        Label(dialog, text=":").grid(row=row+2, column=1, padx=0, pady=10)
         m_entry = Entry(dialog, width=2)
-        m_entry.grid(row=row+1, column=2, padx=0, pady=0)
-        Label(dialog, text=":").grid(row=row+1, column=3, padx=0, pady=10)
+        m_entry.grid(row=row+2, column=2, padx=0, pady=0)
+        Label(dialog, text=":").grid(row=row+2, column=3, padx=0, pady=10)
         s_entry = Entry(dialog, width=2)
-        s_entry.grid(row=row+1, column=4, padx=0, pady=10)
+        s_entry.grid(row=row+2, column=4, padx=0, pady=10)
+
+        len_entry = Entry(dialog, width=8, state='readonly')
+        len_entry.grid(row=row+2, column=10, padx=10, pady=10)
 
         for i, s in enumerate(self.my_helios.scenes.keys()):
             if (i%4)*2 == 0:
@@ -461,19 +499,21 @@ class HeliosControlTab():
                 cs = 1
                 col = 5
             a = partial(dialog_add_scene_act, s)
-            b = Button(dialog, text=s, command=a)
+            b = Button(dialog, text="{:s} ({:.1f} s)".format(s, self.my_helios.scenes_len[s]/1000), command=a)
             print(s, i%4+col)
-            b.grid(row=row+2+i//4, column=i%4+col, columnspan=cs, padx=10, pady=10)
+            b.grid(row=row+3+i//4, column=i%4+col, columnspan=cs, padx=10, pady=10)
+        
+        row += len(self.my_helios.scenes) // 4
 
-        Button(dialog, text="Add Seq", command=dialog_add_act).grid(row=row+3, 
+        Button(dialog, text="Add Seq", command=dialog_add_act).grid(row=row+4, 
                                                                 column=0,
                                                                 columnspan=5, 
                                                                 padx=10, pady=10)
-        Button(dialog, text="Remove Scene", command=dialog_remove_scene_act).grid(row=row+3, 
+        Button(dialog, text="Remove Scene", command=dialog_remove_scene_act).grid(row=row+4, 
                                                                 column=6,
                                                                 padx=10, pady=10)
     
-        Button(dialog, text="Cancel", command=dialog.destroy).grid(row=row+3, 
+        Button(dialog, text="Cancel", command=dialog.destroy).grid(row=row+4, 
                                                                    column=7, 
                                                                    padx=10, pady=10)
 
@@ -489,43 +529,76 @@ class HeliosControlTab():
             dt = datetime.datetime.fromisoformat("1900-01-01 {:02d}:{:02d}:{:02d}".format(int(h_entry.get()), int(m_entry.get()), int(s_entry.get())))
             tz_delta = datetime.datetime.now(datetime.timezone.utc).astimezone().utcoffset()
             utc_time = (dt-tz_delta).time()
-            hs = HeliosSchedule(0, str(utc_time), 'wifi')
+            if everyday.get() == 0:
+                y = int(year_entry.get())
+                m = int(month_entry.get())
+                d = int(day_entry.get())
+            else:
+                y = None
+                m = None
+                d = None
+            hs = HeliosSchedule(0, str(utc_time), 'wifi', y=y, m=m, d=d)
             self.my_helios.add_schedule(hs)
             dialog.destroy()
 
         i = 0
+        ncols = 4
         for s in self.my_helios.schedule:
             if s.type == 'sequence':
                 continue
-            if (i%2)*2 == 0:
+            if (i%ncols)*2 == 0:
                 cs = 5
                 col = 0
             else:
                 cs = 1
                 col = 5
-            Label(dialog, text=str(s)[4:]).grid(row=i//2, column=(i%2)*2+col, padx=10, pady=10,columnspan=cs)
+            Label(dialog, text=str(s)[4:]).grid(row=i//ncols, column=(i%ncols)*2+col, padx=10, pady=10,columnspan=cs)
             a = partial(dialog_delete_act, s)
-            Button(dialog, text="Remove", command=a).grid(row=i//2, column=(i%2)*2+6)
+            Button(dialog, text="Remove", command=a).grid(row=i//ncols, column=(i%ncols)*2+6)
             i += 1
   
         row = i
-        ttk.Separator(dialog,orient=HORIZONTAL).grid(row=row, columnspan=9, sticky="ew")
-        
+        ttk.Separator(dialog,orient=HORIZONTAL).grid(row=row, columnspan=5+ncols*2-1, sticky="ew")
+
+        def _everyday_tog():
+            print(everyday.get())
+            if everyday.get() == 0:
+                day_entry.config(state="normal")
+                month_entry.config(state="normal")
+                year_entry.config(state="normal")
+            else:
+                day_entry.config(state="disabled")
+                month_entry.config(state="disabled")
+                year_entry.config(state="disabled")
+
+
+        everyday = IntVar()
+
+        Checkbutton(dialog, text="Everyday", variable=everyday, command=_everyday_tog).grid(row=row+1, column=6,padx=10, pady=10)
+        day_entry = Entry(dialog, width=2)
+        day_entry.grid(row=row+1, column=0, padx=0, pady=10)
+        Label(dialog, text="-").grid(row=row+1, column=1, padx=0, pady=10)
+        month_entry = Entry(dialog, width=2)
+        month_entry.grid(row=row+1, column=2, padx=0, pady=0)
+        Label(dialog, text="-").grid(row=row+1, column=3, padx=0, pady=10)
+        year_entry = Entry(dialog, width=4)
+        year_entry.grid(row=row+1, column=4, padx=0, pady=10)
+
         h_entry = Entry(dialog, width=2)
-        h_entry.grid(row=row+1, column=0, padx=0, pady=10)
-        Label(dialog, text=":").grid(row=row+1, column=1, padx=0, pady=10)
+        h_entry.grid(row=row+2, column=0, padx=0, pady=10)
+        Label(dialog, text=":").grid(row=row+2, column=1, padx=0, pady=10)
         m_entry = Entry(dialog, width=2)
-        m_entry.grid(row=row+1, column=2, padx=0, pady=0)
-        Label(dialog, text=":").grid(row=row+1, column=3, padx=0, pady=10)
+        m_entry.grid(row=row+2, column=2, padx=0, pady=0)
+        Label(dialog, text=":").grid(row=row+2, column=3, padx=0, pady=10)
         s_entry = Entry(dialog, width=2)
-        s_entry.grid(row=row+1, column=4, padx=0, pady=10)
+        s_entry.grid(row=row+2, column=4, padx=0, pady=10)
 
 
-        Button(dialog, text="Add WiFi Schedule", command=dialog_add_act).grid(row=row+1, 
+        Button(dialog, text="Add WiFi Schedule", command=dialog_add_act).grid(row=row+2, 
                                                                 column=6,
                                                                 padx=10, pady=10)
     
-        Button(dialog, text="Cancel", command=dialog.destroy).grid(row=row+1, 
+        Button(dialog, text="Cancel", command=dialog.destroy).grid(row=row+2, 
                                                                    column=7, 
                                                                    padx=10, pady=10)
         
@@ -601,16 +674,20 @@ class HeliosControlTab():
 
         def _alt_v2d_corr():
             self.my_helios.get_position()
-            v2d = self.my_helios.get_prm('altv2d')
+            old_v2d = self.my_helios.get_prm('aziv2d')
+            v2d = old_v2d
             v2d *= self.my_helios.alt/90.
             self.my_helios.set_prm('altv2d', v2d)
+            self.my_helios.set_prm(HELIOS_FLOAT_EDITABLE_CFG['ALT_ENCODER_ZERO'], self.my_helios.get_prm(HELIOS_FLOAT_EDITABLE_CFG['ALT_ENCODER_ZERO'])*v2d/old_v2d)
             self.my_helios.reload_prm()
 
         def _azi_v2d_corr():
             self.my_helios.get_position()
-            v2d = self.my_helios.get_prm('aziv2d')
+            old_v2d = self.my_helios.get_prm('aziv2d')
+            v2d = old_v2d
             v2d *= self.my_helios.azi/90.
             self.my_helios.set_prm('aziv2d', v2d)
+            self.my_helios.set_prm(HELIOS_FLOAT_EDITABLE_CFG['ALT_ENCODER_ZERO'], self.my_helios.get_prm(HELIOS_FLOAT_EDITABLE_CFG['ALT_ENCODER_ZERO'])*v2d/old_v2d)
             self.my_helios.reload_prm()
 
         Button(dialog, text="Go to 90.0 90.0", command=lambda :self.my_helios.absolute_move(90., 90.)).grid(row=10, column=0, columnspan=4, padx=10, pady=10)
@@ -836,7 +913,7 @@ class HeliosGUI():
             self.helios_tabs = []
             for h in self.helios:
                 self.helios_tabs += [HeliosControlTab(h, self.main_tab)]
-                self.main_tab.add(self.helios_tabs[-1].helios_tab, text=h.id)
+                self.main_tab.add(self.helios_tabs[-1].helios_tab, text=h.nickname)
 
             self.main_tab.pack(expand = 1, fill ="both")
 
@@ -859,15 +936,18 @@ class HeliosGUI():
     def add_helios_from_file(self):
         with open('helios.config') as f:
             for l in f:
-                self.add_helios_unit(l.strip())
+                if '#' in l:
+                    continue
+                else:
+                    self.add_helios_unit(l.strip().split()[0], nickname=l.strip().split()[1])
 
-    def add_helios_unit(self, ip=None):
+    def add_helios_unit(self, ip=None, nickname=None):
         if ip is None:
             if self.add_unit_dialog_entry_ip is not None:
                 ip = self.add_unit_dialog_entry_ip.get()
             else:
                 ip = ''
-        self.helios += [HeliosUnit(ip)]
+        self.helios += [HeliosUnit(ip, nickname)]
         if ip is None:
             self.add_unit_dialog.destroy()
         self.draw_main_space()
